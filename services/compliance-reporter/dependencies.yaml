@@ -1,0 +1,62 @@
+service:
+  name: compliance-reporter
+  version: 1.9.0
+  team: compliance
+  oncall: compliance-team@grants.org
+
+databases:
+  - name: grants_core_db
+    type: postgresql
+    version: "14"
+    host: grants-core-readonly.internal
+    access: read_only_replica
+    shared_with:
+      - grants-portal
+      - review-engine
+      - awards-management
+    tables_read:
+      - applications
+      - awards
+      - grant_programs
+      - organizations
+      - review_scores
+      - applicants
+    criticality: critical
+    notes: "Direct SQL — raw queries without ORM. Schema changes break reports silently."
+
+  - name: financial_db
+    type: postgresql
+    version: "14"
+    host: grants-financial-readonly.internal
+    access: read_only_replica
+    shared_with:
+      - awards-management
+    tables_read:
+      - disbursements
+      - disbursement_line_items
+      - budget_lines
+      - grant_budgets
+      - fiscal_years
+      - audit_log
+    criticality: critical
+    notes: "SF-425 and audit reports depend on exact schema. No migration tolerance."
+
+infrastructure:
+  - name: compliance-reporter-ec2
+    type: ec2
+    instance_type: t3.medium
+    count: 1
+    purpose: Flask app + scheduled report generation
+    notes: "Single instance — no redundancy. Do not terminate without backup plan."
+
+  - name: grants-documents-310207263177
+    type: s3
+    access: direct_boto3
+    purpose: Bulk document export for audit packages
+    notes: "Bypasses document-service — direct S3 access with service IAM role"
+
+internal_services:
+  - name: auth-service
+    endpoint: https://auth.internal/api/v1
+    criticality: high
+    fallback: none
