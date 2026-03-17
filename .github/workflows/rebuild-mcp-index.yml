@@ -1,0 +1,91 @@
+# ============================================================
+# FILE LOCATION IN DOCS-CENTRAL:
+#   .github/workflows/rebuild-mcp-index.yml
+#
+# Copy this file to the patchg/docs-central repo at that path.
+#
+# REQUIRED SECRETS (set in docs-central repo Settings → Secrets):
+#   AWS_ACCESS_KEY_ID     — AWS credentials with lambda:InvokeFunction permission
+#   AWS_SECRET_ACCESS_KEY — Matching AWS secret key
+#
+# WHAT IT DOES:
+#   On any push to main that touches a services/** path, this workflow
+#   invokes the mcp-index-builder-dev Lambda to rebuild the FAISS
+#   vector index from the latest docs. The updated index is then
+#   served by the mcp-server-dev Lambda via Cline's vector_search tool.
+# ============================================================
+
+name: Rebuild MCP Vector Index
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+
+  # Allow manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual rebuild'
+        required: false
+        default: 'manual trigger'
+
+jobs:
+  rebuild-index:
+    name: Trigger MCP Index Rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Invoke Index Builder Lambda
+        run: |
+          echo "Triggering MCP index rebuild..."
+          echo "Triggered by: ${{ github.event_name }} on ${{ github.ref }} @ ${{ github.sha }}"
+
+          aws lambda invoke \
+            --function-name mcp-index-builder-dev \
+            --payload '{"source":"github-actions","ref":"${{ github.ref }}","sha":"${{ github.sha }}"}' \
+            --cli-binary-format raw-in-base64-out \
+            --log-type Tail \
+            /tmp/lambda-response.json \
+            | python3 -c "
+          import sys, json, base64
+          resp = json.load(sys.stdin)
+          log = base64.b64decode(resp.get('LogResult','')).decode('utf-8','replace')
+          print('=== Lambda tail log ===')
+          print(log[-3000:] if len(log) > 3000 else log)
+          "
+
+          echo "=== Lambda response body ==="
+          cat /tmp/lambda-response.json | python3 -m json.tool
+
+          STATUS=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/lambda-response.json'))
+          print(d.get('statusCode', 0))
+          ")
+
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Index rebuild failed with statusCode=$STATUS"
+            exit 1
+          fi
+
+          echo "Index rebuild completed successfully (statusCode=200)"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### MCP Index Rebuild" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lambda**: mcp-index-builder-dev (us-east-1)" >> $GITHUB_STEP_SUMMARY
