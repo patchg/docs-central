@@ -1,0 +1,70 @@
+service:
+  name: awards-management
+  version: 5.1.2
+  team: grants-operations
+  oncall: grants-ops-oncall@grants.org
+
+databases:
+  - name: grants_core_db
+    type: postgresql
+    version: "14"
+    host: grants-core-postgres.internal
+    shared_with:
+      - grants-portal
+      - review-engine
+    tables_written:
+      - awards
+      - grant_programs
+    tables_read:
+      - review_scores
+      - panel_assignments
+      - applications
+      - applicants
+      - organizations
+    criticality: critical
+    notes: "Reads review_scores directly — no API contract with review-engine"
+
+  - name: financial_db
+    type: postgresql
+    version: "14"
+    host: grants-financial-postgres.internal
+    shared_with:
+      - compliance-reporter
+    tables_written:
+      - disbursements
+      - disbursement_line_items
+      - budget_lines
+      - grant_budgets
+      - fiscal_years
+      - audit_log
+    tables_read:
+      - fiscal_years
+    criticality: critical
+    notes: "compliance-reporter reads these tables directly — coordinate schema changes"
+
+internal_services:
+  - name: auth-service
+    endpoint: https://auth.internal/api/v1
+    criticality: critical
+    fallback: none
+
+  - name: notification-service
+    endpoint: https://notifications.internal/api/v1
+    purpose: Award issued and payment processed notifications
+    criticality: medium
+    fallback: Manual email to grantee
+
+external_services:
+  - name: federal-payment-gateway
+    endpoint: https://pay.treasury.gov/api/v3
+    purpose: ACH disbursement processing
+    criticality: critical
+    fallback: Manual wire transfer (requires finance director approval)
+
+infrastructure:
+  - name: awards-management-ec2
+    type: ec2
+    instance_type: m5.xlarge
+    count: 2
+    purpose: Spring Boot API + Angular frontend
+    notes: "No auto-scaling — manual failover only"
