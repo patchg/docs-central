@@ -1,0 +1,53 @@
+service:
+  name: review-engine
+  version: 2.7.4
+  team: grants-operations
+  oncall: grants-ops-oncall@grants.org
+
+databases:
+  - name: grants_core_db
+    type: postgresql
+    version: "14"
+    host: grants-core-postgres.internal
+    shared_with:
+      - grants-portal
+      - awards-management
+    tables_written:
+      - review_scores
+      - panel_assignments
+    tables_read:
+      - applications
+      - applicants
+      - organizations
+      - grant_programs
+    criticality: critical
+    notes: "awards-management reads review_scores directly — no API contract"
+
+  - name: review-engine-cache
+    type: elasticache_redis
+    version: "7"
+    host: review-cache.internal
+    purpose: Application list cache, session storage
+    criticality: medium
+    shared_with: []
+
+internal_services:
+  - name: auth-service
+    endpoint: https://auth.internal/api/v1
+    purpose: SAML SSO login, JWT validation
+    criticality: critical
+    fallback: none
+
+  - name: notification-service
+    endpoint: https://notifications.internal/api/v1
+    purpose: Review assignment notifications to reviewers
+    criticality: low
+    fallback: Reviewers check portal manually
+
+infrastructure:
+  - name: review-engine-asg
+    type: ec2_auto_scaling
+    instance_type: t3.large
+    min: 2
+    max: 6
+    purpose: Django API servers
