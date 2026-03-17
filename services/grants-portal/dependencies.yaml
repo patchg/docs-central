@@ -1,0 +1,62 @@
+service:
+  name: grants-portal
+  version: 3.2.1
+  team: applicant-experience
+  oncall: applicant-experience-oncall@grants.org
+
+databases:
+  - name: grants_core_db
+    type: postgresql
+    version: "14"
+    host: grants-core-postgres.internal
+    shared_with:
+      - review-engine
+      - awards-management
+    tables_written:
+      - organizations
+      - applicants
+      - applications
+    tables_read:
+      - grant_programs
+      - fiscal_years
+    criticality: critical
+    notes: "Shared DB — coordinate schema changes with review-engine and awards-management teams"
+
+  - name: grants-sessions-redis
+    type: redis
+    version: "7"
+    host: grants-redis.internal
+    shared_with:
+      - grantee-connect
+    purpose: session storage
+    criticality: high
+
+internal_services:
+  - name: auth-service
+    endpoint: https://auth.internal/api/v1
+    purpose: JWT validation and SSO login
+    criticality: critical
+    fallback: none — portal is inaccessible without auth-service
+
+  - name: notification-service
+    endpoint: https://notifications.internal/api/v1
+    purpose: Application confirmation and deadline reminder emails
+    criticality: medium
+    fallback: Queue emails locally and retry
+
+  - name: document-service
+    endpoint: https://documents.internal/api/v1
+    purpose: Application attachment upload and retrieval
+    criticality: high
+    fallback: Disable file upload, notify applicant
+
+infrastructure:
+  - name: grants-portal-api
+    type: aws_lambda
+    purpose: REST API backend
+  - name: grants-documents-310207263177
+    type: s3
+    purpose: Application document storage (via document-service)
+  - name: CloudFront distribution
+    type: cloudfront
+    purpose: Frontend hosting
