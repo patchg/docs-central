@@ -1,0 +1,86 @@
+service:
+  name: grantee-connect
+  version: 2.3.0
+  team: grantee-experience
+  oncall: grantee-experience-oncall@grants.org
+
+databases:
+  - name: grantee_connect_db
+    type: postgresql
+    version: "14"
+    host: grantee-connect-postgres.internal
+    access: read_write
+    shared_with: []
+    tables_written:
+      - progress_reports
+      - report_periods
+      - report_attachments
+      - amendment_requests
+    criticality: high
+
+  - name: grants_core_db
+    type: postgresql
+    version: "14"
+    host: grants-core-readonly.internal
+    access: read_only_replica
+    shared_with:
+      - grants-portal
+      - review-engine
+      - awards-management
+      - compliance-reporter
+    tables_read:
+      - awards
+      - organizations
+      - grant_programs
+    criticality: high
+    notes: "Read-only access. Schema changes by other teams can break grantee award display."
+
+  - name: financial_db
+    type: postgresql
+    version: "14"
+    host: grants-financial-readonly.internal
+    access: read_only_replica
+    shared_with:
+      - awards-management
+      - compliance-reporter
+    tables_read:
+      - disbursements
+      - grant_budgets
+    criticality: high
+    notes: "Grantees view disbursement status and budgets. No write access."
+
+  - name: grants-sessions-redis
+    type: redis
+    version: "7"
+    host: grants-redis.internal
+    shared_with:
+      - grants-portal
+    purpose: Grantee session storage
+    criticality: high
+    notes: "Shared with grants-portal — no memory quotas or namespacing"
+
+internal_services:
+  - name: auth-service
+    endpoint: https://auth.internal/api/v1
+    criticality: critical
+    fallback: none
+
+  - name: notification-service
+    endpoint: https://notifications.internal/api/v1
+    purpose: Progress report submission confirmations, payment notifications, report deadline reminders
+    criticality: medium
+    fallback: Grantee checks portal manually
+
+  - name: document-service
+    endpoint: https://documents.internal/api/v1
+    purpose: Progress report attachment upload and retrieval
+    criticality: high
+    fallback: Disable file upload, accept text-only report
+
+infrastructure:
+  - name: grantee-connect-api
+    type: aws_lambda_container
+    purpose: Rails API backend
+  - name: CloudFront distribution
+    type: cloudfront
+    purpose: Vue.js frontend
